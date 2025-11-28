@@ -6,10 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-argh = "0.1"
-nalgebra = "0.32"
-rpi-led-panel = "0.2.0"
-rand = "0.8.5"
+clap = { version = "3.0" }
+nalgebra = "0.34"
+rpi-led-matrix = { path = "/home/sionois/Github/rust-rpi-rgb-led-matrix/rpi-led-matrix", default-features = false, features = ["args", "stdcpp-static-link", "embeddedgraphics"]}
+rand = "0.9"
 
 [dev-dependencies]
-embedded-graphics = "0.7.1"
+embedded-graphics = "0.8"

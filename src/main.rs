@@ -1,107 +1,178 @@
 mod simplex;
 
-use std::io::Write;
+use clap::{arg, App};
 
-use nalgebra::{Point2, Point3, Vector2};
+use rpi_led_matrix::{args, LedColor, LedMatrix};
 
-use rpi_led_panel::{RGBMatrix, RGBMatrixConfig};
+use nalgebra::{vector, Point2, Point3, Vector2};
 
 use rand::prelude::*;
 
 struct Particle {
-    r: u8,
-    g: u8,
-    b: u8,
+    color: LedColor,
     coords: Point2<f64>,
+    ttl: usize,
 }
 
-const PARTICLE_COUNT: usize = 256;
-const PARTICLE_SPEED: f64 = 0.1;
-
 fn main() {
-    let config: RGBMatrixConfig = argh::from_env();
+    let app = App::new("Curl Noise Led Matrix")
+        .arg(
+            arg!(
+            --"particle-count" <VAL> "'Total number of particles'")
+            .default_value("2000")
+            .required(false),
+        )
+        .arg(
+            arg!(
+            --"field-scale" <VAL> "'Scaling of the vector field'")
+            .default_value("0.05")
+            .required(false),
+        )
+        .arg(
+            arg!(
+            --"particle-speed" <VAL> "'Scaling of the particle movements'")
+            .default_value("0.01")
+            .required(false),
+        )
+        .arg(
+            arg!(
+            --"flow-speed" <VAL> "'Scaling of the flow'")
+            .default_value("0.09")
+            .required(false),
+        )
+        .arg(
+            arg!(
+            --"particle-ttl" <VAL> "'Max particle life time'")
+            .default_value("2500")
+            .required(false),
+        );
 
-    let (mut matrix, mut canvas) = RGBMatrix::new(config, 0).expect("Led Matrix Init");
+    let app = args::add_matrix_args(app);
+    let matches = app.get_matches();
+    let (options, rt_options) = args::matrix_options_from_args(&matches);
 
-    let rows = canvas.rows(); // 64
-    let columns = canvas.cols(); // 64
-    let pixel_count = rows * columns; // 4096
+    let particle_count: usize = matches
+        .value_of_t("particle-count")
+        .expect("Invalid value given for particle-count");
 
-    let mut vector_field = Vec::with_capacity(pixel_count);
+    let field_scale: f64 = matches
+        .value_of_t("field-scale")
+        .expect("Invalid value given for field-scale");
+
+    let particle_speed: f64 = matches
+        .value_of_t("particle-speed")
+        .expect("Invalid value given for particle-speed");
+
+    let flow_speed: f64 = matches
+        .value_of_t("flow-speed")
+        .expect("Invalid value given for flow-speed");
+
+    let particle_ttl: usize = matches
+        .value_of_t("particle-ttl")
+        .expect("Invalid value given for particle-ttl");
+
+    println!("Options: {:?}", options);
+    println!("Runtime Options: {:?}", rt_options);
+
+    let matrix = LedMatrix::new(Some(options), Some(rt_options)).expect("Led Matrix Init");
+    let mut canvas = matrix.offscreen_canvas();
+
+    let (width, height) = canvas.canvas_size();
+    let width = width as u32;
+    let height = height as u32;
+    let pixel_count = width * height; // 4096
+
+    println!(
+        "Canvas {} x {} Particle count {} speed {} Field scale {} Flow scale {}",
+        width, height, particle_count, particle_speed, field_scale, flow_speed
+    );
+
+    let mut vector_field = Vec::with_capacity(pixel_count as usize);
 
     // Vector field init
-    for y in 0..columns {
-        for x in 0..rows {
-            let coords = Point2::new(x as f64, y as f64);
+    for y in 0..height {
+        for x in 0..width {
+            let coords = Point2::new(x as f64 * field_scale, y as f64 * field_scale);
 
-            let vector = curl_noise_2d(&coords, 1f64);
+            let vector = curl_noise_2d(&coords, 1f64); //TODO add time dimension
 
             vector_field.push(vector);
         }
     }
 
     // Init particles with random colors and position
-    let mut particles = Vec::with_capacity(PARTICLE_COUNT);
-    let mut rng = rand::thread_rng();
-    for _ in 0..PARTICLE_COUNT {
-        let mut rgb = [0u8; 3];
-        rng.fill_bytes(&mut rgb);
-
-        let x = rng.gen_range(0.0..64.0);
-        let y = rng.gen_range(0.0..64.0);
-
-        let part = Particle {
-            r: rgb[0],
-            g: rgb[1],
-            b: rgb[2],
-            coords: Point2::new(x, y),
-        };
-
-        particles.push(part);
+    let mut particles = Vec::with_capacity(particle_count);
+    let mut rng = rand::rng();
+    for _ in 0..particle_count {
+        particles.push(random_particle(
+            &mut rng,
+            width as f64,
+            height as f64,
+            particle_ttl,
+        ));
     }
 
-    for step in 0.. {
-        canvas.fill(0, 0, 0);
+    let flow = vector![rng.random_range(0.0..1.0), rng.random_range(0.0..1.0)].normalize();
+
+    loop {
+        canvas.clear();
 
         for particle in particles.iter_mut() {
             // Quantize particle coordinates
-            let x = particle.coords.x.floor() as usize;
-            let y = particle.coords.y.floor() as usize;
+            let x = particle.coords.x.floor() as u32;
+            let y = particle.coords.y.floor() as u32;
 
-            canvas.set_pixel(x, y, particle.r, particle.g, particle.b);
+            canvas.set(x as i32, y as i32, &particle.color);
 
             // Get index from coords
-            let idx = y.saturating_sub(1) * rows + x;
+            let idx = ((y.saturating_sub(1) * width) + x) as usize;
             let vector = vector_field[idx];
 
             // Move particle according to vector
-            particle.coords += vector * PARTICLE_SPEED;
+            particle.coords += (vector * particle_speed) + (flow * flow_speed);
 
             // Wrap around the edges
-            if particle.coords.x > 64.0 {
+            if particle.coords.x > width as f64 {
                 particle.coords.x = 0.0;
             }
 
             if particle.coords.x < 0.0 {
-                particle.coords.x = 64.0;
+                particle.coords.x = width as f64;
             }
 
-            if particle.coords.y > 64.0 {
+            if particle.coords.y > height as f64 {
                 particle.coords.y = 0.0;
             }
 
             if particle.coords.y < 0.0 {
-                particle.coords.y = 64.0;
+                particle.coords.y = height as f64;
+            }
+
+            particle.ttl = particle.ttl.saturating_sub(1);
+
+            //Regenerate particle
+            if particle.ttl <= 0 {
+                *particle = random_particle(&mut rng, width as f64, height as f64, particle_ttl);
             }
         }
 
-        canvas = matrix.update_on_vsync(canvas);
-
-        if step % 120 == 0 {
-            print!("\r{:>100}\rFramerate: {}", "", matrix.get_framerate());
-            std::io::stdout().flush().unwrap();
-        }
+        canvas = matrix.swap(canvas);
     }
+}
+
+fn random_particle<R: Rng>(rng: &mut R, width: f64, height: f64, max_ttl: usize) -> Particle {
+    let mut rgb = [0u8; 3];
+    rng.fill_bytes(&mut rgb);
+
+    let color = LedColor {
+        red: rgb[0],
+        green: rgb[1],
+        blue: rgb[2],
+    };
+    let coords = Point2::new(rng.random_range(0.0..width), rng.random_range(0.0..height));
+    let ttl = rng.random_range(0..max_ttl);
+
+    return Particle { color, coords, ttl };
 }
 
 pub fn curl_noise_2d(coordinates: &Point2<f64>, time: f64) -> Vector2<f64> {
@@ -118,50 +189,4 @@ fn curl_2d(derivatives: &Vector2<f64>) -> Vector2<f64> {
     // potential field deriv y -> vector field x
     // potential field deriv -x -> vector field y
     Vector2::new(derivatives.y, -derivatives.x)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use embedded_graphics::{
-        image::{Image, ImageRawBE},
-        pixelcolor::Rgb888,
-        prelude::*,
-        Drawable,
-    };
-
-    const IMAGE_DATA: &[u8] = include_bytes!("../assets/ferris_test_card.rgb");
-    const IMAGE_SIZE: usize = 64;
-
-    #[test]
-    fn test_image() {
-        let config: RGBMatrixConfig = argh::from_env();
-
-        let rows = config.rows;
-        let cols = config.cols;
-
-        let (mut matrix, mut canvas) =
-            RGBMatrix::new(config, 0).expect("Matrix initialization failed");
-
-        let image_data = ImageRawBE::<Rgb888>::new(IMAGE_DATA, IMAGE_SIZE as u32);
-        let image = Image::new(
-            &image_data,
-            Point::new(
-                (cols / 2 - IMAGE_SIZE / 2) as i32,
-                (rows / 2 - IMAGE_SIZE / 2) as i32,
-            ),
-        );
-
-        for step in 0.. {
-            canvas.fill(0, 0, 0);
-            image.draw(canvas.as_mut()).unwrap();
-            canvas = matrix.update_on_vsync(canvas);
-
-            if step % 120 == 0 {
-                print!("\r{:>100}\rFramerate: {}", "", matrix.get_framerate());
-                std::io::stdout().flush().unwrap();
-            }
-        }
-    }
 }
