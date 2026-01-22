@@ -1,0 +1,15 @@
+[package]
+name = "curl-matrix"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "curl_matrix"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "3.0", features = ["cargo"] }
+curl-core = { path = "../curl-core" }
+nalgebra = { workspace = true }
+rand = { workspace = true }
+rpi-led-matrix = { workspace = true }

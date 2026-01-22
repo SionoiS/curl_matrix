@@ -1,17 +1,11 @@
-mod simplex;
-
 use clap::{arg, App};
-
+use curl_core::{generate_vector_field, Particle as CoreParticle};
+use rand::prelude::*;
 use rpi_led_matrix::{args, LedColor, LedMatrix};
 
-use nalgebra::{vector, Point2, Point3, Vector2};
-
-use rand::prelude::*;
-
+/// Particle wrapper that adds the LED-specific color type.
 struct Particle {
-    color: LedColor,
-    coords: Point2<f64>,
-    ttl: usize,
+    inner: CoreParticle<LedColor>,
 }
 
 fn main() {
@@ -45,6 +39,18 @@ fn main() {
             --"particle-ttl" <VAL> "'Max particle life time'")
             .default_value("2500")
             .required(false),
+        )
+        .arg(
+            arg!(
+            --"field-update-interval" <VAL> "'Frames between field recomputations'")
+            .default_value("120")
+            .required(false),
+        )
+        .arg(
+            arg!(
+            --"time-speed" <VAL> "'How fast time progresses in noise field'")
+            .default_value("0.01")
+            .required(false),
         );
 
     let app = args::add_matrix_args(app);
@@ -71,6 +77,14 @@ fn main() {
         .value_of_t("particle-ttl")
         .expect("Invalid value given for particle-ttl");
 
+    let field_update_interval: usize = matches
+        .value_of_t("field-update-interval")
+        .expect("Invalid value given for field-update-interval");
+
+    let time_speed: f64 = matches
+        .value_of_t("time-speed")
+        .expect("Invalid value given for time-speed");
+
     println!("Options: {:?}", options);
     println!("Runtime Options: {:?}", rt_options);
 
@@ -80,25 +94,14 @@ fn main() {
     let (width, height) = canvas.canvas_size();
     let width = width as u32;
     let height = height as u32;
-    let pixel_count = width * height; // 4096
 
     println!(
         "Canvas {} x {} Particle count {} speed {} Field scale {} Flow scale {}",
         width, height, particle_count, particle_speed, field_scale, flow_speed
     );
 
-    let mut vector_field = Vec::with_capacity(pixel_count as usize);
-
-    // Vector field init
-    for y in 0..height {
-        for x in 0..width {
-            let coords = Point2::new(x as f64 * field_scale, y as f64 * field_scale);
-
-            let vector = curl_noise_2d(&coords, 1f64); //TODO add time dimension
-
-            vector_field.push(vector);
-        }
-    }
+    let mut current_time = 0.0;
+    let mut vector_field = generate_vector_field(width, height, field_scale, current_time);
 
     // Init particles with random colors and position
     let mut particles = Vec::with_capacity(particle_count);
@@ -112,81 +115,72 @@ fn main() {
         ));
     }
 
-    let flow = vector![rng.random_range(0.0..1.0), rng.random_range(0.0..1.0)].normalize();
+    let flow = nalgebra::vector![rng.random_range(0.0..1.0), rng.random_range(0.0..1.0)].normalize();
+
+    let mut frame_count: usize = 0;
 
     loop {
         canvas.clear();
 
         for particle in particles.iter_mut() {
             // Quantize particle coordinates
-            let x = particle.coords.x.floor() as u32;
-            let y = particle.coords.y.floor() as u32;
+            let x = particle.inner.coords.x.floor() as u32;
+            let y = particle.inner.coords.y.floor() as u32;
 
-            canvas.set(x as i32, y as i32, &particle.color);
+            canvas.set(x as i32, y as i32, &particle.inner.color);
 
             // Get index from coords
             let idx = ((y.saturating_sub(1) * width) + x) as usize;
             let vector = vector_field[idx];
 
             // Move particle according to vector
-            particle.coords += (vector * particle_speed) + (flow * flow_speed);
+            particle.inner.coords += (vector * particle_speed) + (flow * flow_speed);
 
             // Wrap around the edges
-            if particle.coords.x > width as f64 {
-                particle.coords.x = 0.0;
+            if particle.inner.coords.x > width as f64 {
+                particle.inner.coords.x = 0.0;
             }
 
-            if particle.coords.x < 0.0 {
-                particle.coords.x = width as f64;
+            if particle.inner.coords.x < 0.0 {
+                particle.inner.coords.x = width as f64;
             }
 
-            if particle.coords.y > height as f64 {
-                particle.coords.y = 0.0;
+            if particle.inner.coords.y > height as f64 {
+                particle.inner.coords.y = 0.0;
             }
 
-            if particle.coords.y < 0.0 {
-                particle.coords.y = height as f64;
+            if particle.inner.coords.y < 0.0 {
+                particle.inner.coords.y = height as f64;
             }
 
-            particle.ttl = particle.ttl.saturating_sub(1);
+            particle.inner.ttl = particle.inner.ttl.saturating_sub(1);
 
-            //Regenerate particle
-            if particle.ttl <= 0 {
+            // Regenerate particle
+            if particle.inner.ttl == 0 {
                 *particle = random_particle(&mut rng, width as f64, height as f64, particle_ttl);
             }
         }
 
         canvas = matrix.swap(canvas);
+
+        frame_count += 1;
+        if frame_count.is_multiple_of(field_update_interval) {
+            current_time += time_speed;
+            vector_field = generate_vector_field(width, height, field_scale, current_time);
+        }
     }
 }
 
 fn random_particle<R: Rng>(rng: &mut R, width: f64, height: f64, max_ttl: usize) -> Particle {
-    let mut rgb = [0u8; 3];
-    rng.fill_bytes(&mut rgb);
-
-    let color = LedColor {
-        red: rgb[0],
-        green: rgb[1],
-        blue: rgb[2],
-    };
-    let coords = Point2::new(rng.random_range(0.0..width), rng.random_range(0.0..height));
-    let ttl = rng.random_range(0..max_ttl);
-
-    return Particle { color, coords, ttl };
-}
-
-pub fn curl_noise_2d(coordinates: &Point2<f64>, time: f64) -> Vector2<f64> {
-    let space_time = Point3::new(coordinates.x, coordinates.y, time);
-
-    let (_, deriv) = simplex::with_derivatives_3d(&space_time);
-
-    let derivatives = &Vector2::new(deriv.x, deriv.y);
-
-    curl_2d(derivatives)
-}
-
-fn curl_2d(derivatives: &Vector2<f64>) -> Vector2<f64> {
-    // potential field deriv y -> vector field x
-    // potential field deriv -x -> vector field y
-    Vector2::new(derivatives.y, -derivatives.x)
+    Particle {
+        inner: curl_core::random_particle(rng, width, height, max_ttl, |rng| {
+            let mut rgb = [0u8; 3];
+            rng.fill_bytes(&mut rgb);
+            LedColor {
+                red: rgb[0],
+                green: rgb[1],
+                blue: rgb[2],
+            }
+        }),
+    }
 }

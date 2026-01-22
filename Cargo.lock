@@ -103,13 +103,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "curl_matrix"
+name = "curl-core"
+version = "0.1.0"
+dependencies = [
+ "nalgebra",
+ "rand",
+]
+
+[[package]]
+name = "curl-matrix"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "curl-core",
+ "nalgebra",
+ "rand",
+ "rpi-led-matrix",
+]
+
+[[package]]
+name = "curl-matrix-examples"
 version = "0.1.0"
 dependencies = [
  "clap",
  "embedded-graphics",
- "nalgebra",
- "rand",
  "rpi-led-matrix",
 ]
 

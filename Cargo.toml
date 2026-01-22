@@ -1,15 +1,24 @@
-[package]
-name = "curl_matrix"
+[workspace]
+resolver = "2"
+members = [
+    "crates/curl-core",
+    "crates/curl-matrix",
+    "crates/examples",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
+authors = ["sionois"]
+license = "MIT"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-clap = { version = "3.0" }
+[workspace.dependencies]
 nalgebra = "0.34"
-rpi-led-matrix = { path = "/home/sionois/Github/rust-rpi-rgb-led-matrix/rpi-led-matrix", default-features = false, features = ["args", "stdcpp-static-link", "embeddedgraphics"]}
 rand = "0.9"
+rpi-led-matrix = { path = "../rust-rpi-rgb-led-matrix/rpi-led-matrix", default-features = false, features = ["args", "stdcpp-static-link", "embeddedgraphics"] }
 
-[dev-dependencies]
-embedded-graphics = "0.8"
+[profile.release]
+codegen-units = 1
+debug = true
+lto = "fat"
+opt-level = 2

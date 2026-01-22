@@ -9,7 +9,7 @@ use embedded_graphics::{
     Drawable,
 };
 
-const IMAGE_DATA: &[u8] = include_bytes!("../assets/ferris_test_card.rgb");
+const IMAGE_DATA: &[u8] = include_bytes!("../../../assets/ferris_test_card.rgb");
 const IMAGE_SIZE: i32 = 64;
 
 fn main() {
@@ -31,8 +31,8 @@ fn main() {
     let image = Image::new(
         &image_data,
         Point::new(
-            (height / 2 - IMAGE_SIZE / 2) as i32,
-            (width / 2 - IMAGE_SIZE / 2) as i32,
+            height / 2 - IMAGE_SIZE / 2,
+            width / 2 - IMAGE_SIZE / 2,
         ),
     );
 

@@ -1,0 +1,8 @@
+[package]
+name = "curl-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nalgebra = { workspace = true }
+rand = { workspace = true }

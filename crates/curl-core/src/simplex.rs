@@ -103,7 +103,7 @@ pub fn with_derivatives_3d(position: &Point3<f64>) -> (f64, Vector3<f64>) {
     let mut derivatives = Vector3::zeros();
 
     for (i, offset) in offsets.iter().enumerate() {
-        let t = 0.5 - offset.dot(&offset);
+        let t = 0.5 - offset.dot(offset);
 
         if t < 0.0 {
             continue;
@@ -116,7 +116,7 @@ pub fn with_derivatives_3d(position: &Point3<f64>) -> (f64, Vector3<f64>) {
             + SEED[indices_j[i] as usize + SEED[indices_k[i] as usize] as usize] as usize]
             % 12) as usize];
 
-        let grad_dot = gradient.dot(&offset);
+        let grad_dot = gradient.dot(offset);
 
         n += t4 * grad_dot;
 

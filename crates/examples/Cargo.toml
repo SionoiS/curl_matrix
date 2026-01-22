@@ -1,0 +1,13 @@
+[package]
+name = "curl-matrix-examples"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "image"
+path = "src/image.rs"
+
+[dependencies]
+clap = { version = "3.0" }
+embedded-graphics = "0.8"
+rpi-led-matrix = { workspace = true }
